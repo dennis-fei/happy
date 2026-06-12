@@ -439,6 +439,91 @@ Conversation history is preserved on the server, but in-flight tool calls are in
       process.exit(1)
     }
     return;
+  } else if (subcommand === 'chat') {
+    // Generic OpenAI-compatible API chat session
+    try {
+      if (args.slice(1).some(a => a === '--help' || a === '-h')) {
+        console.log(`
+${chalk.bold('happy chat')} - Chat with any OpenAI-compatible API from your phone
+
+${chalk.bold('Usage:')}
+  happy chat [options]
+
+${chalk.bold('Options:')}
+  --base-url <url>     API base URL (default: $HAPPY_CHAT_BASE_URL, $OPENAI_BASE_URL, or https://api.openai.com/v1)
+  --api-key <key>      API key (default: $HAPPY_CHAT_API_KEY or $OPENAI_API_KEY)
+  --model <model>      Model name (default: $HAPPY_CHAT_MODEL or gpt-4o-mini)
+  --system <prompt>    Optional system prompt
+  --temperature <n>    Sampling temperature
+  --verbose            Verbose logging
+
+${chalk.bold('Examples:')}
+  happy chat --model gpt-4o
+  happy chat --base-url https://api.deepseek.com/v1 --model deepseek-chat
+  happy chat --base-url http://localhost:11434/v1 --model llama3
+`);
+        return;
+      }
+
+      const { runApiChat } = await import('@/apichat/runApiChat');
+
+      let startedBy: 'daemon' | 'terminal' | undefined = undefined;
+      let verbose = false;
+      let baseUrl: string | undefined;
+      let apiKey: string | undefined;
+      let model: string | undefined;
+      let systemPrompt: string | undefined;
+      let temperature: number | undefined;
+      for (let i = 1; i < args.length; i++) {
+        if (args[i] === '--started-by') {
+          startedBy = args[++i] as 'daemon' | 'terminal';
+        } else if (args[i] === '--verbose') {
+          verbose = true;
+        } else if (args[i] === '--base-url') {
+          baseUrl = args[++i];
+        } else if (args[i] === '--api-key') {
+          apiKey = args[++i];
+        } else if (args[i] === '--model') {
+          model = args[++i];
+        } else if (args[i] === '--system') {
+          systemPrompt = args[++i];
+        } else if (args[i] === '--temperature') {
+          temperature = parseFloat(args[++i]);
+        }
+      }
+
+      const resolvedBaseUrl = baseUrl
+        ?? process.env.HAPPY_CHAT_BASE_URL
+        ?? process.env.OPENAI_BASE_URL
+        ?? 'https://api.openai.com/v1';
+      const resolvedApiKey = apiKey
+        ?? process.env.HAPPY_CHAT_API_KEY
+        ?? process.env.OPENAI_API_KEY;
+      const resolvedModel = model
+        ?? process.env.HAPPY_CHAT_MODEL
+        ?? 'gpt-4o-mini';
+
+      const { credentials } = await authAndSetupMachineIfNeeded();
+      await ensureDaemonRunning()
+
+      await runApiChat({
+        credentials,
+        startedBy,
+        verbose,
+        baseUrl: resolvedBaseUrl,
+        apiKey: resolvedApiKey,
+        model: resolvedModel,
+        systemPrompt,
+        temperature,
+      });
+    } catch (error) {
+      console.error(chalk.red('Error:'), error instanceof Error ? error.message : 'Unknown error')
+      if (process.env.DEBUG) {
+        console.error(error)
+      }
+      process.exit(1)
+    }
+    return;
   } else if (subcommand === 'logout') {
     // Keep for backward compatibility - redirect to auth logout
     console.log(chalk.yellow('Note: "happy logout" is deprecated. Use "happy auth logout" instead.\n'));
