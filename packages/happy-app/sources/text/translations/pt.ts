@@ -429,6 +429,7 @@ export const pt: TranslationStructure = {
             codex: 'Codex',
             gemini: 'Gemini',
             openclaw: 'OpenClaw',
+            apichat: 'API Chat',
         },
         model: {
             title: 'MODELO',

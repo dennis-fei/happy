@@ -107,6 +107,18 @@ export function getOpenClawPermissionModes(translate: Translate): PermissionMode
     ];
 }
 
+export function getApiChatPermissionModes(translate: Translate): PermissionMode[] {
+    return [
+        { key: 'default', name: translate('agentInput.permissionMode.default'), description: null },
+    ];
+}
+
+export function getApiChatModelModes(): ModelMode[] {
+    return [
+        { key: 'default', name: 'default model', description: null },
+    ];
+}
+
 export function getHardcodedPermissionModes(flavor: AgentFlavor, translate: Translate): PermissionMode[] {
     if (flavor === 'codex') {
         return getCodexPermissionModes(translate);
@@ -116,6 +128,9 @@ export function getHardcodedPermissionModes(flavor: AgentFlavor, translate: Tran
     }
     if (flavor === 'openclaw') {
         return getOpenClawPermissionModes(translate);
+    }
+    if (flavor === 'apichat') {
+        return getApiChatPermissionModes(translate);
     }
     return getClaudePermissionModes(translate);
 }
@@ -135,6 +150,9 @@ export function getHardcodedModelModes(flavor: AgentFlavor, _translate: Translat
     }
     if (flavor === 'openclaw') {
         return getOpenClawModelModes();
+    }
+    if (flavor === 'apichat') {
+        return getApiChatModelModes();
     }
     return getClaudeModelModes();
 }
@@ -253,6 +271,6 @@ export function getDefaultEffortKeyForModel(flavor: AgentFlavor, modelKey: strin
 }
 
 export function getSupportsWorktree(flavor: AgentFlavor): boolean {
-    if (flavor === 'openclaw') return false;
+    if (flavor === 'openclaw' || flavor === 'apichat') return false;
     return true;
 }

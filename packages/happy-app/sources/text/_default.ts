@@ -444,6 +444,7 @@ export const en = {
             codex: 'Codex',
             gemini: 'Gemini',
             openclaw: 'OpenClaw',
+            apichat: 'API Chat',
         },
         model: {
             title: 'MODEL',
