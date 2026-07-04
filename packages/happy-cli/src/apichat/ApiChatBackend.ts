@@ -142,17 +142,24 @@ export class ApiChatBackend {
       }
     } catch (error) {
       if (abort.signal.aborted) {
+        // Abort path: save whatever partial text we received so the conversation
+        // history stays coherent. The catch block below must NOT also run here,
+        // so we use an early return inside the finally cleanup.
         this.log('Request aborted');
         if (assistantText) {
           this.history.push({ role: 'assistant', content: assistantText });
         }
+        // Fall through to finally (currentRequest = null, emit idle) — do NOT
+        // execute the error-path logic below.
       } else {
         const msg = error instanceof Error ? error.message : String(error);
         this.log(`Request failed: ${msg}`);
         // Surface the error in the chat instead of killing the session
         this.emit({ type: 'model-output', textDelta: `\n[apichat error] ${msg}\n` });
         this.emit({ type: 'event', name: 'apichat-error', payload: { message: msg } });
-        // Keep history consistent: drop the user message that failed
+        // Keep history consistent: drop the user message that triggered this
+        // failed turn. Only pop if the last entry is indeed the user message we
+        // just pushed (guard against re-entrant or unexpected history mutations).
         if (this.history[this.history.length - 1]?.role === 'user') {
           this.history.pop();
         }
@@ -166,6 +173,11 @@ export class ApiChatBackend {
   /**
    * Parse an SSE stream of OpenAI chat completion chunks.
    * Returns the accumulated assistant text.
+   *
+   * Normalises \r\n → \n before splitting so servers that use CRLF line endings
+   * (e.g. behind an nginx proxy or Azure OpenAI) are handled correctly.
+   * Cancels the ReadableStream reader before releasing the lock so the
+   * underlying fetch body is actually closed when we see [DONE] early.
    */
   private async consumeSseStream(body: ReadableStream<Uint8Array>, signal: AbortSignal): Promise<string> {
     const reader = body.getReader();
@@ -178,7 +190,9 @@ export class ApiChatBackend {
         if (signal.aborted) break;
         const { done, value } = await reader.read();
         if (done) break;
-        buffer += decoder.decode(value, { stream: true });
+
+        // Normalise CRLF → LF so indexOf('\n') works for all servers
+        buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
 
         // SSE events are separated by double newlines; lines start with "data: "
         let newlineIndex: number;
@@ -205,6 +219,10 @@ export class ApiChatBackend {
         }
       }
     } finally {
+      // Cancel the reader so the fetch body is actually closed (not just unlocked).
+      // Suppressing errors here because the stream may already be closed if the
+      // server sent [DONE] and then closed the connection.
+      await reader.cancel().catch(() => {});
       reader.releaseLock();
     }
     return fullText;

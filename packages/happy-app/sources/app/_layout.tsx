@@ -19,6 +19,7 @@ import { ModalProvider } from '@/modal';
 import { PostHogProvider } from 'posthog-react-native';
 import { tracking } from '@/track/tracking';
 import { syncRestore } from '@/sync/sync';
+import { setServerUrl } from '@/sync/serverConfig';
 import { useTrackScreens } from '@/track/useTrackScreens';
 import { RealtimeProvider } from '@/realtime/RealtimeProvider';
 import { FaviconPermissionIndicator } from '@/components/web/FaviconPermissionIndicator';
@@ -196,6 +197,13 @@ function getDevWebQueryCredentials(): AuthCredentials | null {
     const params = new URLSearchParams(window.location.search);
     const token = params.get('dev_token');
     const secret = params.get('dev_secret');
+
+    // 如果 URL 带了 dev_server，立即更新本地存储的服务器地址（解决换网络后 IP 变化问题）
+    const devServer = params.get('dev_server');
+    if (devServer) {
+        setServerUrl(devServer);
+    }
+
     if (!token || !secret) {
         return null;
     }

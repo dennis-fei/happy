@@ -72,6 +72,27 @@ export async function runApiChat(opts: RunApiChatOptions): Promise<void> {
     log(`Happy Session ID: ${response.id}`);
   }
 
+  const sessionManager = new AcpSessionManager();
+  const messageQueue = new MessageQueue2<Record<string, never>>(() => '');
+  let shouldExit = false;
+  let abortController = new AbortController();
+  let thinking = false;
+  let inTurn = false;
+  let turnDone: (() => void) | null = null;
+
+  /**
+   * Register per-session listeners that must be re-applied whenever the session
+   * object is swapped (offline → reconnected path via setupOfflineReconnection).
+   * Not re-registering after a swap would cause the new session to never deliver
+   * user messages to the message queue.
+   */
+  const registerSessionListeners = (s: ApiSessionClient) => {
+    s.onUserMessage((message) => {
+      if (!message.content.text) return;
+      messageQueue.push(message.content.text, {});
+    });
+  };
+
   let session: ApiSessionClient;
   const { session: initialSession, reconnectionHandle } = setupOfflineReconnection({
     api,
@@ -81,9 +102,11 @@ export async function runApiChat(opts: RunApiChatOptions): Promise<void> {
     response,
     onSessionSwap: (newSession) => {
       session = newSession;
+      registerSessionListeners(newSession);
     },
   });
   session = initialSession;
+  registerSessionListeners(session);
 
   if (response) {
     try {
@@ -98,14 +121,6 @@ export async function runApiChat(opts: RunApiChatOptions): Promise<void> {
       logger.debug('[apichat] Failed to report session to daemon:', error);
     }
   }
-
-  const sessionManager = new AcpSessionManager();
-  const messageQueue = new MessageQueue2<Record<string, never>>(() => '');
-  let shouldExit = false;
-  let abortController = new AbortController();
-  let thinking = false;
-  let inTurn = false;
-  let turnDone: (() => void) | null = null;
 
   const sendEnvelopes = (envelopes: SessionEnvelope[]) => {
     for (const envelope of envelopes) {
@@ -148,11 +163,6 @@ export async function runApiChat(opts: RunApiChatOptions): Promise<void> {
   };
 
   backend.onMessage(onBackendMessage);
-
-  session.onUserMessage((message) => {
-    if (!message.content.text) return;
-    messageQueue.push(message.content.text, {});
-  });
   session.keepAlive(thinking, 'remote');
 
   const keepAliveInterval = setInterval(() => {
@@ -198,10 +208,15 @@ export async function runApiChat(opts: RunApiChatOptions): Promise<void> {
       log(`Incoming prompt: ${batch.message.slice(0, 200)}`);
       inTurn = true;
       sendEnvelopes(sessionManager.startTurn());
+      // turnDone is set synchronously inside new Promise before sendPrompt is
+      // awaited, so onBackendMessage can never call turnDone?.() before it is
+      // assigned (sendPrompt's internal async work fires after this tick).
       const turnEnded = new Promise<void>((resolve) => {
         turnDone = resolve;
       });
       try {
+        // Note: the first argument (_sessionId) is unused by ApiChatBackend because
+        // it is a single-session backend. It is kept for interface compatibility.
         await backend.sendPrompt(started.sessionId, batch.message);
         await turnEnded;
         sendEnvelopes(sessionManager.endTurn('completed'));

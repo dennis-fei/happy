@@ -65,6 +65,15 @@ export async function doAuth(): Promise<Credentials | null> {
  * Display authentication method selector and return user choice
  */
 function selectAuthenticationMethod(): Promise<AuthMethod | null> {
+    // Allow bypassing the interactive Ink selector via environment variable.
+    // Useful for scripted/non-TTY environments (e.g. self-host startup scripts).
+    if (process.env.HAPPY_AUTH_METHOD === 'web') {
+        return Promise.resolve('web');
+    }
+    if (process.env.HAPPY_AUTH_METHOD === 'mobile') {
+        return Promise.resolve('mobile');
+    }
+
     return new Promise((resolve) => {
         let hasResolved = false;
 

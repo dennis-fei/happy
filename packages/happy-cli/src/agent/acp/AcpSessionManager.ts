@@ -59,7 +59,10 @@ export class AcpSessionManager {
     if (!this.pendingText || !this.pendingType) {
       return [];
     }
-    const text = this.pendingText.replace(/^\n+|\n+$/g, '');
+    // Only trim trailing newlines. Leading newlines are meaningful in streamed
+    // output (e.g. the opening \n before a Markdown code fence) and must be
+    // preserved, otherwise the rendered text loses formatting.
+    const text = this.pendingText.replace(/\n+$/g, '');
     const type = this.pendingType;
     this.pendingText = '';
     this.pendingType = null;
@@ -115,8 +118,9 @@ export class AcpSessionManager {
         return flushed;
       }
 
-      // Non-streaming thinking: flush pending, emit immediately
-      const trimmed = text.replace(/^\n+|\n+$/g, '');
+      // Non-streaming thinking: flush pending, emit immediately.
+      // Only trim trailing newlines (keep leading ones for formatting parity).
+      const trimmed = text.replace(/\n+$/g, '');
       if (!trimmed) {
         return this.flush();
       }

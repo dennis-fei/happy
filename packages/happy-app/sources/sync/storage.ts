@@ -93,11 +93,16 @@ export interface SessionRowData {
     completedTodosCount: number;
     totalTodosCount: number;
     hasUnread: boolean;
+    // Names of tools waiting for user approval (non-empty only when state === 'permission_required')
+    permissionPreview: string | null;
 }
 
 function buildSessionRowData(session: Session, unreadSessionIds?: Set<string>): SessionRowData {
     const isOnline = session.presence === "online";
-    const hasPermissions = !!(session.agentState?.requests && Object.keys(session.agentState.requests).length > 0);
+    const requestEntries = session.agentState?.requests
+        ? Object.values(session.agentState.requests)
+        : [];
+    const hasPermissions = requestEntries.length > 0;
 
     let state: SessionState;
     if (!isOnline) {
@@ -109,6 +114,11 @@ function buildSessionRowData(session: Session, unreadSessionIds?: Set<string>): 
     } else {
         state = 'waiting';
     }
+
+    // Build a compact preview of which tools need approval, e.g. "Write · Edit"
+    const permissionPreview = requestEntries.length > 0
+        ? [...new Set(requestEntries.map(r => r.tool))].join(' · ')
+        : null;
 
     return {
         id: session.id,
@@ -126,6 +136,7 @@ function buildSessionRowData(session: Session, unreadSessionIds?: Set<string>): 
         completedTodosCount: session.todos?.filter(todo => todo.status === 'completed').length ?? 0,
         totalTodosCount: session.todos?.length ?? 0,
         hasUnread: unreadSessionIds?.has(session.id) ?? false,
+        permissionPreview,
     };
 }
 
@@ -235,93 +246,69 @@ function buildSessionListViewData(
     sessions: Record<string, Session>,
     unreadSessionIds?: Set<string>,
 ): SessionListViewItem[] {
-    // Separate active and inactive sessions
-    const activeSessions: Session[] = [];
-    const inactiveSessions: Session[] = [];
+    // Classify active sessions by state
+    const needsYou: Session[] = [];
+    const working: Session[] = [];
+    const waiting: Session[] = [];
 
-    Object.values(sessions).forEach(session => {
-        if (isSessionActive(session)) {
-            activeSessions.push(session);
-        } else {
-            inactiveSessions.push(session);
+    // Inactive sessions split by whether they were created today
+    const todayInactive: Session[] = [];
+    const olderInactive: Session[] = [];
+
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayStartMs = todayStart.getTime();
+
+    for (const session of Object.values(sessions)) {
+        if (!isSessionActive(session)) {
+            if (session.createdAt >= todayStartMs) {
+                todayInactive.push(session);
+            } else {
+                olderInactive.push(session);
+            }
+            continue;
         }
-    });
+        // Active — classify by state (matches buildSessionRowData logic)
+        const requestEntries = session.agentState?.requests
+            ? Object.values(session.agentState.requests)
+            : [];
+        if (requestEntries.length > 0) {
+            needsYou.push(session);
+        } else if (session.thinking) {
+            working.push(session);
+        } else {
+            waiting.push(session);
+        }
+    }
 
-    // Sort by creation date (newest first) — matches applySessions behavior
-    activeSessions.sort((a, b) => b.createdAt - a.createdAt);
-    inactiveSessions.sort((a, b) => b.createdAt - a.createdAt);
+    // Sort by most recently updated first
+    const byUpdated = (a: Session, b: Session) => b.updatedAt - a.updatedAt;
+    needsYou.sort(byUpdated);
+    working.sort(byUpdated);
+    waiting.sort(byUpdated);
+    todayInactive.sort(byUpdated);
+    olderInactive.sort((a, b) => b.createdAt - a.createdAt);
 
-    // Build unified list view data
     const listData: SessionListViewItem[] = [];
 
-    // Add active sessions as a single item at the top (if any)
-    if (activeSessions.length > 0) {
-        listData.push({ type: 'active-sessions', sessions: activeSessions.map(s => buildSessionRowData(s, unreadSessionIds)) });
-    }
+    const pushGroup = (group: Session[], title: string) => {
+        if (group.length === 0) return;
+        listData.push({ type: 'header', title });
+        group.forEach(s => listData.push({ type: 'session', session: buildSessionRowData(s, unreadSessionIds) }));
+    };
 
-    // Group inactive sessions by date
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
+    pushGroup(needsYou, `needs you · ${needsYou.length}`);
+    pushGroup(working, `working · ${working.length}`);
+    pushGroup(waiting, `waiting · ${waiting.length}`);
+    pushGroup(todayInactive, `done today · ${todayInactive.length}`);
 
-    let currentDateGroup: Session[] = [];
-    let currentDateString: string | null = null;
-
-    for (const session of inactiveSessions) {
-        const sessionDate = new Date(session.createdAt);
-        const dateString = sessionDate.toDateString();
-
-        if (currentDateString !== dateString) {
-            // Process previous group
-            if (currentDateGroup.length > 0 && currentDateString) {
-                const groupDate = new Date(currentDateString);
-                const sessionDateOnly = new Date(groupDate.getFullYear(), groupDate.getMonth(), groupDate.getDate());
-
-                let headerTitle: string;
-                if (sessionDateOnly.getTime() === today.getTime()) {
-                    headerTitle = 'Today';
-                } else if (sessionDateOnly.getTime() === yesterday.getTime()) {
-                    headerTitle = 'Yesterday';
-                } else {
-                    const diffTime = today.getTime() - sessionDateOnly.getTime();
-                    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-                    headerTitle = `${diffDays} days ago`;
-                }
-
-                listData.push({ type: 'header', title: headerTitle });
-                currentDateGroup.forEach(sess => {
-                    listData.push({ type: 'session', session: buildSessionRowData(sess, unreadSessionIds) });
-                });
-            }
-
-            // Start new group
-            currentDateString = dateString;
-            currentDateGroup = [session];
-        } else {
-            currentDateGroup.push(session);
-        }
-    }
-
-    // Process final group
-    if (currentDateGroup.length > 0 && currentDateString) {
-        const groupDate = new Date(currentDateString);
-        const sessionDateOnly = new Date(groupDate.getFullYear(), groupDate.getMonth(), groupDate.getDate());
-
-        let headerTitle: string;
-        if (sessionDateOnly.getTime() === today.getTime()) {
-            headerTitle = 'Today';
-        } else if (sessionDateOnly.getTime() === yesterday.getTime()) {
-            headerTitle = 'Yesterday';
-        } else {
-            const diffTime = today.getTime() - sessionDateOnly.getTime();
-            const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-            headerTitle = `${diffDays} days ago`;
-        }
-
-        listData.push({ type: 'header', title: headerTitle });
-        currentDateGroup.forEach(sess => {
-            listData.push({ type: 'session', session: buildSessionRowData(sess, unreadSessionIds) });
-        });
+    // Archive toggle marks the boundary between recent and older sessions.
+    // useVisibleSessionListViewData replaces `hidden` with the live setting.
+    if (olderInactive.length > 0) {
+        listData.push({ type: 'archive-toggle', hidden: false });
+        olderInactive.forEach(s =>
+            listData.push({ type: 'session', session: buildSessionRowData(s, unreadSessionIds) })
+        );
     }
 
     return listData;

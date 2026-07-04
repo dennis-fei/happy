@@ -474,21 +474,43 @@ ${chalk.bold('Examples:')}
       let model: string | undefined;
       let systemPrompt: string | undefined;
       let temperature: number | undefined;
+
+      // Helper: assert the next token exists and is not another flag
+      const requireNextArg = (flag: string, idx: number): string => {
+        const next = args[idx + 1];
+        if (next === undefined || next.startsWith('--')) {
+          console.error(chalk.red(`Error: ${flag} requires a value`));
+          process.exit(1);
+        }
+        return next;
+      };
+
       for (let i = 1; i < args.length; i++) {
         if (args[i] === '--started-by') {
-          startedBy = args[++i] as 'daemon' | 'terminal';
+          startedBy = requireNextArg('--started-by', i) as 'daemon' | 'terminal';
+          i++;
         } else if (args[i] === '--verbose') {
           verbose = true;
         } else if (args[i] === '--base-url') {
-          baseUrl = args[++i];
+          baseUrl = requireNextArg('--base-url', i);
+          i++;
         } else if (args[i] === '--api-key') {
-          apiKey = args[++i];
+          apiKey = requireNextArg('--api-key', i);
+          i++;
         } else if (args[i] === '--model') {
-          model = args[++i];
+          model = requireNextArg('--model', i);
+          i++;
         } else if (args[i] === '--system') {
-          systemPrompt = args[++i];
+          systemPrompt = requireNextArg('--system', i);
+          i++;
         } else if (args[i] === '--temperature') {
-          temperature = parseFloat(args[++i]);
+          const raw = requireNextArg('--temperature', i);
+          i++;
+          temperature = parseFloat(raw);
+          if (isNaN(temperature)) {
+            console.error(chalk.red(`Error: --temperature must be a number, got: ${raw}`));
+            process.exit(1);
+          }
         }
       }
 

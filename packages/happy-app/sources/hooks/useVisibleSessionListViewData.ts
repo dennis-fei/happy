@@ -1,63 +1,38 @@
 import * as React from 'react';
 import { SessionListViewItem, useSessionListViewData, useSetting } from '@/sync/storage';
 
+/**
+ * Applies the user's "hide inactive sessions" preference to the raw list data.
+ *
+ * buildSessionListViewData produces a flat list already grouped by work status
+ * (needs-you → working → waiting → done-today → archive-toggle → older).
+ * This hook just:
+ *   1. Overwrites archive-toggle.hidden with the live setting value.
+ *   2. Strips the session items that follow the archive-toggle when hiding is on.
+ */
 export function useVisibleSessionListViewData(): SessionListViewItem[] | null {
     const data = useSessionListViewData();
     const hideInactiveSessions = useSetting('hideInactiveSessions');
 
     return React.useMemo(() => {
-        if (!data) {
-            return data;
-        }
+        if (!data) return data;
 
         const result: SessionListViewItem[] = [];
-        let hasInactive = false;
+        let afterToggle = false;
 
-        // First pass: add active sessions group and check if inactive sessions exist
         for (const item of data) {
-            if (item.type === 'active-sessions') {
-                result.push(item);
-            } else if (item.type === 'session' && !item.session.active) {
-                hasInactive = true;
+            if (item.type === 'archive-toggle') {
+                afterToggle = true;
+                result.push({ type: 'archive-toggle', hidden: hideInactiveSessions });
+                continue;
             }
-        }
 
-        // Insert archive toggle if there are inactive sessions
-        if (hasInactive) {
-            result.push({ type: 'archive-toggle', hidden: hideInactiveSessions });
-        }
-
-        // If not hiding, add all remaining items (headers, project groups, inactive sessions)
-        if (!hideInactiveSessions) {
-            let pendingProjectGroup: SessionListViewItem | null = null;
-
-            for (const item of data) {
-                if (item.type === 'active-sessions') {
-                    continue; // already added
-                }
-
-                if (item.type === 'project-group') {
-                    pendingProjectGroup = item;
-                    continue;
-                }
-
-                if (item.type === 'session') {
-                    if (!item.session.active) {
-                        if (pendingProjectGroup) {
-                            result.push(pendingProjectGroup);
-                            pendingProjectGroup = null;
-                        }
-                        result.push(item);
-                    }
-                    continue;
-                }
-
-                pendingProjectGroup = null;
-
-                if (item.type === 'header') {
-                    result.push(item);
-                }
+            // Suppress older sessions when hiding is active
+            if (afterToggle && hideInactiveSessions) {
+                continue;
             }
+
+            result.push(item);
         }
 
         return result;

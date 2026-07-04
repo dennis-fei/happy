@@ -4,8 +4,104 @@ import * as privacyKit from "privacy-kit";
 import { db } from "@/storage/db";
 import { auth } from "@/app/auth/auth";
 import { log } from "@/utils/log";
+import { randomBytes } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { homedir } from "node:os";
 
 export function authRoutes(app: Fastify) {
+
+    // ── DEV-ONLY: auto-approve a terminal auth request ──────────────────────
+    // Requires X-Master-Secret header matching HANDY_MASTER_SECRET env var.
+    // Used by self-host scripts to bootstrap auth without an interactive browser.
+    app.post('/v1/dev/auto-approve', {
+        schema: {
+            body: z.object({
+                publicKey: z.string() // base64url, as it appears in the #key= URL hash
+            })
+        }
+    }, async (request, reply) => {
+        // Self-host only: never expose on a public production server. Anyone with
+        // HANDY_MASTER_SECRET could otherwise authorize an arbitrary publicKey.
+        if (!(process.env.HAPPY_SELF_HOST === 'true' || process.env.NODE_ENV !== 'production')) {
+            return reply.code(404).send();
+        }
+        const masterSecret = process.env.HANDY_MASTER_SECRET;
+        const provided = (request.headers as any)['x-master-secret'];
+        if (!masterSecret || provided !== masterSecret) {
+            return reply.code(401).send({ error: 'Invalid master secret' });
+        }
+
+        const tweetnacl = (await import("tweetnacl")).default;
+
+        // Decode CLI ephemeral public key (base64url → bytes → hex for DB lookup)
+        const cliPublicKey = privacyKit.decodeBase64(request.body.publicKey, 'base64url');
+        const cliPublicKeyHex = privacyKit.encodeHex(cliPublicKey);
+
+        log({ module: 'dev-auto-approve' }, `Auto-approve for CLI publicKey hex: ${cliPublicKeyHex.substring(0, 20)}...`);
+
+        const authRequest = await db.terminalAuthRequest.findUnique({ where: { publicKey: cliPublicKeyHex } });
+        if (!authRequest) {
+            return reply.code(404).send({ error: `Auth request not found. publicKeyHex: ${cliPublicKeyHex}` });
+        }
+
+        // Generate 32-byte shared secret and encrypt it for the CLI
+        const sharedSecret = new Uint8Array(randomBytes(32));
+        const ephemeral = tweetnacl.box.keyPair();
+        const nonce = new Uint8Array(randomBytes(tweetnacl.box.nonceLength));
+        const encrypted = tweetnacl.box(sharedSecret, nonce, cliPublicKey, ephemeral.secretKey);
+
+        // Bundle format the CLI expects: ephemeralPubKey(32) + nonce(24) + encrypted
+        const bundle = new Uint8Array(ephemeral.publicKey.length + nonce.length + encrypted.length);
+        bundle.set(ephemeral.publicKey, 0);
+        bundle.set(nonce, ephemeral.publicKey.length);
+        bundle.set(encrypted, ephemeral.publicKey.length + nonce.length);
+        const responseBase64 = privacyKit.encodeBase64(bundle);
+
+        // Upsert a system dev account as the "approver"
+        const devAccount = await db.account.upsert({
+            where: { publicKey: 'dev-auto-approve-system' },
+            update: {},
+            create: { publicKey: 'dev-auto-approve-system' }
+        });
+
+        await db.terminalAuthRequest.update({
+            where: { id: authRequest.id },
+            data: { response: responseBase64, responseAccountId: devAccount.id }
+        });
+
+        log({ module: 'dev-auto-approve' }, `Terminal auth auto-approved successfully`);
+        return reply.send({ success: true });
+    });
+
+    // ── DEV / SELF-HOST ONLY: return CLI credentials for web app injection ───
+    // Reads ~/.happy/access.key and returns { token, secret } so the web app
+    // can authenticate as the same account as the CLI.
+    //
+    // Security: this endpoint is only registered when HAPPY_SELF_HOST=true (or
+    // NODE_ENV !== 'production'). It must never be exposed on a public-facing
+    // production server because anyone who obtains HANDY_MASTER_SECRET could
+    // use it to impersonate any CLI user.
+    if (process.env.HAPPY_SELF_HOST === 'true' || process.env.NODE_ENV !== 'production') {
+        app.get('/v1/dev/web-credentials', async (request, reply) => {
+            const masterSecret = process.env.HANDY_MASTER_SECRET;
+            const provided = (request.headers as any)['x-master-secret'];
+            if (!masterSecret || provided !== masterSecret) {
+                return reply.code(401).send({ error: 'Invalid master secret' });
+            }
+            const happyHome = process.env.HAPPY_HOME || join(homedir(), '.happy');
+            const keyFile = join(happyHome, 'access.key');
+            try {
+                const contents = await readFile(keyFile, 'utf-8');
+                const parsed = JSON.parse(contents);
+                log({ module: 'dev-web-credentials' }, `Returning CLI credentials for web injection`);
+                return reply.send(parsed);
+            } catch {
+                return reply.code(404).send({ error: 'CLI credentials not found. Run the CLI (启动MockAI对话.command) first.' });
+            }
+        });
+    }
+    // ────────────────────────────────────────────────────────────────────────
     app.post('/v1/auth', {
         schema: {
             body: z.object({

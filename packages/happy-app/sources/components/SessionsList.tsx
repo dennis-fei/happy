@@ -3,14 +3,10 @@ import { View, Pressable, FlatList, Platform } from 'react-native';
 import { Text } from '@/components/StyledText';
 import { usePathname } from 'expo-router';
 import { SessionListViewItem, SessionRowData } from '@/sync/storage';
-import { Ionicons } from '@expo/vector-icons';
-import { type SessionState, formatLastSeen, vibingMessages } from '@/utils/sessionUtils';
-import { Avatar } from './Avatar';
-import { ActiveSessionsGroupCompact } from './ActiveSessionsGroupCompact';
+import { type SessionState, formatLastSeen } from '@/utils/sessionUtils';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useVisibleSessionListViewData } from '@/hooks/useVisibleSessionListViewData';
 import { Typography } from '@/constants/Typography';
-import { StatusDot } from './StatusDot';
 import { StyleSheet } from 'react-native-unistyles';
 import { useIsTablet } from '@/utils/responsive';
 import { requestReview } from '@/utils/requestReview';
@@ -21,6 +17,49 @@ import { SessionActionsAnchor, SessionActionsPopover } from './SessionActionsPop
 import { useSessionActionAlert } from '@/hooks/useSessionQuickActions';
 import { useSettingMutable } from '@/sync/storage';
 import { t } from '@/text';
+
+// ─── Agent avatar config ──────────────────────────────────────────────────────
+
+type AgentVariant = 'claude' | 'gemini' | 'apichat' | 'codex' | 'openclaw' | 'default';
+
+const AGENT_CFG: Record<AgentVariant, { letter: string; bg: string; fg: string }> = {
+    claude:   { letter: 'C',  bg: '#ede9fe', fg: '#5b21b6' },
+    gemini:   { letter: 'G',  bg: '#dbeafe', fg: '#1d4ed8' },
+    apichat:  { letter: 'A',  bg: '#fef3c7', fg: '#92400e' },
+    codex:    { letter: 'Co', bg: '#dcfce7', fg: '#15803d' },
+    openclaw: { letter: 'O',  bg: '#fce7f3', fg: '#9d174d' },
+    default:  { letter: '·',  bg: '#f1f5f9', fg: '#64748b' },
+};
+
+function resolveAgentVariant(flavor: string | null): AgentVariant {
+    if (!flavor) return 'default';
+    if (flavor === 'claude') return 'claude';
+    if (flavor === 'gemini') return 'gemini';
+    if (flavor === 'apichat') return 'apichat';
+    if (flavor === 'gpt' || flavor === 'openai' || flavor === 'codex') return 'codex';
+    if (flavor === 'openclaw') return 'openclaw';
+    return 'default';
+}
+
+// ─── Status config ────────────────────────────────────────────────────────────
+
+type StatusVariant = 'needs-you' | 'working' | 'waiting' | 'offline';
+
+const STATUS_CFG: Record<StatusVariant, { label: string; dot: string }> = {
+    'needs-you': { label: '待审批', dot: '#f59e0b' },
+    'working':   { label: '工作中', dot: '#3b82f6' },
+    'waiting':   { label: '在线',   dot: '#22c55e' },
+    'offline':   { label: '离线',   dot: '#cbd5e1' },
+};
+
+function resolveStatusVariant(state: SessionState, hasUnread: boolean): StatusVariant {
+    if (hasUnread || state === 'permission_required') return 'needs-you';
+    if (state === 'thinking') return 'working';
+    if (state === 'waiting') return 'waiting';
+    return 'offline';
+}
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
 
 const stylesheet = StyleSheet.create((theme) => ({
     container: {
@@ -34,167 +73,272 @@ const stylesheet = StyleSheet.create((theme) => ({
         flex: 1,
         maxWidth: layout.maxWidth,
     },
-    headerSection: {
-        backgroundColor: theme.colors.groupped.background,
-        paddingHorizontal: 24,
-        paddingTop: 20,
-        paddingBottom: 8,
+
+    // Section header — subtle, minimal
+    sectionHeader: {
+        paddingHorizontal: 18,
+        paddingTop: 18,
+        paddingBottom: 4,
     },
-    headerText: {
-        fontSize: 14,
-        fontWeight: '600',
-        color: theme.colors.groupped.sectionTitle,
-        letterSpacing: 0.1,
-        ...Typography.default('semiBold'),
-    },
-    projectGroup: {
-        paddingHorizontal: 16,
-        paddingVertical: 10,
-        backgroundColor: theme.colors.surface,
-    },
-    projectGroupTitle: {
-        fontSize: 13,
-        fontWeight: '600',
-        color: theme.colors.text,
-        ...Typography.default('semiBold'),
-    },
-    projectGroupSubtitle: {
+    sectionHeaderText: {
         fontSize: 11,
-        color: theme.colors.textSecondary,
-        marginTop: 2,
-        ...Typography.default(),
-    },
-    sessionItem: {
-        height: 88,
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingHorizontal: 16,
-        backgroundColor: theme.colors.surface,
-    },
-    sessionItemContainer: {
-        marginHorizontal: 16,
-        marginBottom: 1,
-        overflow: 'hidden',
-    },
-    sessionItemFirst: {
-        borderTopLeftRadius: 12,
-        borderTopRightRadius: 12,
-    },
-    sessionItemLast: {
-        borderBottomLeftRadius: 12,
-        borderBottomRightRadius: 12,
-    },
-    sessionItemSingle: {
-        borderRadius: 12,
-    },
-    sessionItemContainerFirst: {
-        borderTopLeftRadius: 12,
-        borderTopRightRadius: 12,
-    },
-    sessionItemContainerLast: {
-        borderBottomLeftRadius: 12,
-        borderBottomRightRadius: 12,
-        marginBottom: 12,
-    },
-    sessionItemContainerSingle: {
-        borderRadius: 12,
-        marginBottom: 12,
-    },
-    sessionItemSelected: {
-        backgroundColor: theme.colors.surfaceSelected,
-    },
-    sessionContent: {
-        flex: 1,
-        marginLeft: 16,
-        justifyContent: 'center',
-    },
-    sessionTitleRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginBottom: 2,
-    },
-    sessionTitle: {
-        fontSize: 15,
-        fontWeight: '500',
-        flex: 1,
+        letterSpacing: 0.6,
+        textTransform: 'uppercase' as const,
+        color: theme.colors.groupped.sectionTitle,
         ...Typography.default('semiBold'),
     },
-    sessionTitleConnected: {
-        color: theme.colors.text,
+
+    // Row outer — clip accent bar to rounded corners
+    rowOuter: {
+        flexDirection: 'row' as const,
+        alignItems: 'stretch' as const,
+        marginHorizontal: 8,
+        marginBottom: 0,
+        borderRadius: 10,
+        overflow: 'hidden' as const,
     },
-    sessionTitleDisconnected: {
-        color: theme.colors.textSecondary,
+
+    // Accent bar — amber left edge for "needs you" items
+    accentBar: {
+        width: 3,
+        backgroundColor: '#f59e0b',
+        flexShrink: 0,
     },
-    sessionSubtitleRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 4,
-        marginBottom: 4,
+
+    // Row — pressable content
+    row: {
+        flex: 1,
+        flexDirection: 'row' as const,
+        alignItems: 'center' as const,
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        gap: 10,
     },
-    sessionSubtitle: {
-        fontSize: 13,
-        color: theme.colors.textSecondary,
-        flexShrink: 1,
-        ...Typography.default(),
+    rowOffline: {
+        opacity: 0.5,
     },
-    statusRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
+    rowNeedsYouBg: {
+        backgroundColor: 'rgba(245, 158, 11, 0.05)',
     },
-    statusDotContainer: {
-        alignItems: 'center',
-        justifyContent: 'center',
-        height: 16,
-        marginTop: 2,
-        marginRight: 4,
+    rowPressed: {
+        backgroundColor: theme.colors.surface,
     },
-    statusText: {
+    rowSelected: {
+        backgroundColor: theme.colors.surface,
+    },
+
+    // Agent avatar — 32×32 circle
+    avatar: {
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+        alignItems: 'center' as const,
+        justifyContent: 'center' as const,
+        flexShrink: 0,
+    },
+    avatarText: {
         fontSize: 12,
-        fontWeight: '500',
-        lineHeight: 16,
+        ...Typography.default('semiBold'),
+    },
+
+    // Content column
+    content: {
+        flex: 1,
+        gap: 2,
+    },
+
+    // Title row
+    titleRow: {
+        flexDirection: 'row' as const,
+        alignItems: 'center' as const,
+        gap: 6,
+    },
+    title: {
+        fontSize: 14,
+        flex: 1,
+        color: theme.colors.text,
+        lineHeight: 19,
+        ...Typography.default('semiBold'),
+    },
+    titleOffline: {
+        color: theme.colors.textSecondary,
         ...Typography.default(),
     },
-    avatarContainer: {
-        position: 'relative',
-        width: 48,
-        height: 48,
+    unreadDot: {
+        width: 7,
+        height: 7,
+        borderRadius: 3.5,
+        backgroundColor: '#3b82f6',
+        flexShrink: 0,
     },
-    draftIconContainer: {
-        position: 'absolute',
-        bottom: -2,
-        right: -2,
-        width: 18,
-        height: 18,
-        alignItems: 'center',
-        justifyContent: 'center',
+
+    // Meta row — status dot + label + time
+    metaRow: {
+        flexDirection: 'row' as const,
+        alignItems: 'center' as const,
+        gap: 5,
     },
-    draftIconOverlay: {
+    statusDot: {
+        width: 5,
+        height: 5,
+        borderRadius: 2.5,
+        flexShrink: 0,
+    },
+    metaText: {
+        fontSize: 12,
         color: theme.colors.textSecondary,
+        ...Typography.default(),
     },
-    artifactsSection: {
-        paddingHorizontal: 16,
-        paddingBottom: 12,
-        backgroundColor: theme.colors.groupped.background,
+    metaTime: {
+        fontSize: 12,
+        color: theme.colors.textSecondary,
+        marginLeft: 'auto' as any,
+        ...Typography.default(),
     },
+
+    // Permission preview — tools awaiting approval
+    permissionPreview: {
+        fontSize: 11,
+        color: '#b45309',
+        marginTop: 1,
+        ...Typography.default(),
+    },
+
+    // Archive toggle
     archiveToggle: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingHorizontal: 24,
-        paddingVertical: 16,
+        flexDirection: 'row' as const,
+        alignItems: 'center' as const,
+        paddingHorizontal: 20,
+        paddingVertical: 14,
     },
     archiveToggleLine: {
         flex: 1,
         height: StyleSheet.hairlineWidth,
         backgroundColor: theme.colors.groupped.sectionTitle,
-        opacity: 0.3,
+        opacity: 0.2,
     },
     archiveToggleText: {
         fontSize: 12,
         color: theme.colors.textSecondary,
-        paddingHorizontal: 12,
+        paddingHorizontal: 10,
+        opacity: 0.6,
         ...Typography.default('semiBold'),
     },
 }));
+
+// ─── AgentAvatar ──────────────────────────────────────────────────────────────
+
+const AgentAvatar = React.memo(({ flavor }: { flavor: string | null }) => {
+    const cfg = AGENT_CFG[resolveAgentVariant(flavor)];
+    return (
+        <View style={[stylesheet.avatar, { backgroundColor: cfg.bg }]}>
+            <Text style={[stylesheet.avatarText, { color: cfg.fg }]}>{cfg.letter}</Text>
+        </View>
+    );
+});
+
+// ─── SessionItem ──────────────────────────────────────────────────────────────
+
+const SessionItem = React.memo(({ session, selected }: {
+    session: SessionRowData;
+    selected?: boolean;
+}) => {
+    const styles = stylesheet;
+    const navigateToSession = useNavigateToSession();
+    const [actionsAnchor, setActionsAnchor] = React.useState<SessionActionsAnchor | null>(null);
+    const showActionAlert = useSessionActionAlert(session.id);
+
+    const statusVariant = resolveStatusVariant(session.state, session.hasUnread);
+    const isNeedsYou = statusVariant === 'needs-you';
+    const isOffline = session.state === 'disconnected';
+    const statusCfg = STATUS_CFG[statusVariant];
+
+    const statusLabel = React.useMemo<string>(() => {
+        if (session.hasUnread) return t('status.unread');
+        return statusCfg.label;
+    }, [session.hasUnread, statusVariant]);
+
+    const handlePress = React.useCallback(() => {
+        navigateToSession(session.id);
+    }, [navigateToSession, session.id]);
+
+    const handleContextMenu = React.useCallback((event: any) => {
+        event.preventDefault?.();
+        event.stopPropagation?.();
+        setActionsAnchor({
+            type: 'point',
+            x: event.nativeEvent.clientX ?? event.nativeEvent.pageX ?? 0,
+            y: event.nativeEvent.clientY ?? event.nativeEvent.pageY ?? 0,
+        });
+    }, []);
+
+    const menuProps = Platform.OS === 'web'
+        ? { onContextMenu: handleContextMenu } as any
+        : { onLongPress: showActionAlert };
+
+    return (
+        <View style={styles.rowOuter}>
+            {/* Amber accent bar — only for "needs you" */}
+            {isNeedsYou && <View style={styles.accentBar} />}
+
+            <Pressable
+                onPress={handlePress}
+                {...menuProps}
+                style={({ pressed }) => [
+                    styles.row,
+                    isOffline && styles.rowOffline,
+                    isNeedsYou && styles.rowNeedsYouBg,
+                    pressed && styles.rowPressed,
+                    selected && styles.rowSelected,
+                ]}
+            >
+                <AgentAvatar flavor={session.flavor} />
+
+                <View style={styles.content}>
+                    {/* Title + unread dot */}
+                    <View style={styles.titleRow}>
+                        <Text
+                            style={[styles.title, isOffline && styles.titleOffline]}
+                            numberOfLines={1}
+                        >
+                            {session.name}
+                        </Text>
+                        {session.hasUnread && <View style={styles.unreadDot} />}
+                    </View>
+
+                    {/* Status dot + label + last-seen time */}
+                    <View style={styles.metaRow}>
+                        <View style={[styles.statusDot, { backgroundColor: statusCfg.dot }]} />
+                        <Text style={styles.metaText}>{statusLabel}</Text>
+                        {isOffline && session.activeAt && (
+                            <Text style={styles.metaTime}>
+                                {formatLastSeen(session.activeAt, false)}
+                            </Text>
+                        )}
+                    </View>
+
+                    {/* Tools waiting for approval */}
+                    {session.permissionPreview && (
+                        <Text style={styles.permissionPreview} numberOfLines={1}>
+                            ⚠ {session.permissionPreview}
+                        </Text>
+                    )}
+                </View>
+            </Pressable>
+
+            {Platform.OS === 'web' && (
+                <SessionActionsPopover
+                    sessionId={session.id}
+                    visible={!!actionsAnchor}
+                    anchor={actionsAnchor ?? { type: 'point', x: 0, y: 0 }}
+                    onClose={() => setActionsAnchor(null)}
+                />
+            )}
+        </View>
+    );
+});
+
+// ─── SessionsList ─────────────────────────────────────────────────────────────
 
 export function SessionsList() {
     const styles = stylesheet;
@@ -203,51 +347,39 @@ export function SessionsList() {
     const pathname = usePathname();
     const isTablet = useIsTablet();
     const [hideInactiveSessions, setHideInactiveSessions] = useSettingMutable('hideInactiveSessions');
+
     const toggleArchived = React.useCallback(() => {
         setHideInactiveSessions(!hideInactiveSessions);
     }, [hideInactiveSessions, setHideInactiveSessions]);
-    // Selection is derived once from pathname so the data array stays stable
-    // across navigations. This keeps FlatList virtualization intact: only
-    // the previously- and newly-selected rows re-render, instead of the
-    // whole visible window.
+
     const selectedSessionId = React.useMemo<string | undefined>(() => {
         if (!isTablet) return undefined;
         if (!pathname.startsWith('/session/')) return undefined;
         return pathname.split('/')[2];
     }, [isTablet, pathname]);
 
-    // Request review
     React.useEffect(() => {
-        if (data && data.length > 0) {
-            requestReview();
-        }
+        if (data && data.length > 0) requestReview();
     }, [data && data.length > 0]);
 
-    // Early return if no data yet
-    if (!data) {
-        return (
-            <View style={styles.container} />
-        );
-    }
+    if (!data) return <View style={styles.container} />;
 
     const keyExtractor = React.useCallback((item: SessionListViewItem, index: number) => {
         switch (item.type) {
-            case 'header': return `header-${item.title}-${index}`;
+            case 'header':          return `header-${item.title}-${index}`;
             case 'active-sessions': return 'active-sessions';
-            case 'archive-toggle': return 'archive-toggle';
-            case 'project-group': return `project-group-${item.machine.id}-${item.displayPath}-${index}`;
-            case 'session': return `session-${item.session.id}`;
+            case 'archive-toggle':  return 'archive-toggle';
+            case 'project-group':   return `project-group-${index}`;
+            case 'session':         return `session-${item.session.id}`;
         }
     }, []);
 
-    const renderItem = React.useCallback(({ item, index }: { item: SessionListViewItem, index: number }) => {
+    const renderItem = React.useCallback(({ item }: { item: SessionListViewItem }) => {
         switch (item.type) {
             case 'header':
                 return (
-                    <View style={styles.headerSection}>
-                        <Text style={styles.headerText}>
-                            {item.title}
-                        </Text>
+                    <View style={styles.sectionHeader}>
+                        <Text style={styles.sectionHeaderText}>{item.title}</Text>
                     </View>
                 );
 
@@ -262,59 +394,22 @@ export function SessionsList() {
                     </Pressable>
                 );
 
+            // Legacy types — not emitted by new grouping
             case 'active-sessions':
-                return (
-                    <ActiveSessionsGroupCompact
-                        sessions={item.sessions}
-                        selectedSessionId={selectedSessionId}
-                    />
-                );
-
             case 'project-group':
-                return (
-                    <View style={styles.projectGroup}>
-                        <Text style={styles.projectGroupTitle}>
-                            {item.displayPath}
-                        </Text>
-                        <Text style={styles.projectGroupSubtitle}>
-                            {item.machine.metadata?.displayName || item.machine.metadata?.host || item.machine.id}
-                        </Text>
-                    </View>
-                );
+                return null;
 
             case 'session':
-                // Determine card styling based on position within date group
-                const prevItem = index > 0 ? data[index - 1] : null;
-                const nextItem = index < data.length - 1 ? data[index + 1] : null;
-
-                const isFirst = prevItem?.type === 'header';
-                const isLast = nextItem?.type === 'header' || nextItem == null || nextItem?.type === 'active-sessions';
-                const isSingle = isFirst && isLast;
-                const selected = item.session.id === selectedSessionId;
-
                 return (
                     <SessionItem
                         session={item.session}
-                        selected={selected}
-                        isFirst={isFirst}
-                        isLast={isLast}
-                        isSingle={isSingle}
+                        selected={item.session.id === selectedSessionId}
                     />
                 );
         }
-    }, [selectedSessionId, data, toggleArchived]);
+    }, [selectedSessionId, toggleArchived]);
 
-
-    // Remove this section as we'll use FlatList for all items now
-
-
-    const HeaderComponent = React.useCallback(() => {
-        return (
-            <UpdateBanner />
-        );
-    }, []);
-
-    // Footer removed - all sessions now shown inline
+    const HeaderComponent = React.useCallback(() => <UpdateBanner />, []);
 
     return (
         <View style={styles.container}>
@@ -334,138 +429,3 @@ export function SessionsList() {
         </View>
     );
 }
-
-const STATUS_CONFIG: Record<SessionState, { color: string; dotColor: string; isPulsing: boolean; isConnected: boolean }> = {
-    disconnected: { color: '#999', dotColor: '#999', isPulsing: false, isConnected: false },
-    thinking: { color: '#007AFF', dotColor: '#007AFF', isPulsing: true, isConnected: true },
-    waiting: { color: '#34C759', dotColor: '#34C759', isPulsing: false, isConnected: true },
-    permission_required: { color: '#FF9500', dotColor: '#FF9500', isPulsing: true, isConnected: true },
-};
-
-const SessionItem = React.memo(({ session, selected, isFirst, isLast, isSingle }: {
-    session: SessionRowData;
-    selected?: boolean;
-    isFirst?: boolean;
-    isLast?: boolean;
-    isSingle?: boolean;
-}) => {
-    const styles = stylesheet;
-    const navigateToSession = useNavigateToSession();
-    const [actionsAnchor, setActionsAnchor] = React.useState<SessionActionsAnchor | null>(null);
-    const baseStatus = STATUS_CONFIG[session.state];
-    // Override to solid blue when session has unread results
-    const status = session.hasUnread
-        ? { ...baseStatus, color: '#007AFF', dotColor: '#007AFF', isPulsing: false, isConnected: baseStatus.isConnected }
-        : baseStatus;
-
-    const vibingMessage = React.useMemo(() => {
-        return vibingMessages[Math.floor(Math.random() * vibingMessages.length)].toLowerCase() + '…';
-    }, [session.state]);
-
-    const statusText = session.hasUnread
-        ? t('status.unread')
-        : session.state === 'thinking'
-            ? vibingMessage
-            : session.state === 'disconnected'
-                ? t('status.lastSeen', { time: formatLastSeen(session.activeAt!, false) })
-                : session.state === 'permission_required'
-                    ? t('status.permissionRequired')
-                    : t('status.online');
-
-    const handlePress = React.useCallback(() => {
-        navigateToSession(session.id);
-    }, [navigateToSession, session.id]);
-
-    const handleContextMenu = React.useCallback((event: any) => {
-        event.preventDefault?.();
-        event.stopPropagation?.();
-        setActionsAnchor({
-            type: 'point',
-            x: event.nativeEvent.clientX ?? event.nativeEvent.pageX ?? 0,
-            y: event.nativeEvent.clientY ?? event.nativeEvent.pageY ?? 0,
-        });
-    }, []);
-
-    const showActionAlert = useSessionActionAlert(session.id);
-    const menuProps = Platform.OS === 'web' ? {
-        onContextMenu: handleContextMenu,
-    } as any : {
-        onLongPress: showActionAlert,
-    };
-
-    return (
-        <View style={[
-            styles.sessionItemContainer,
-            isSingle ? styles.sessionItemContainerSingle :
-                isFirst ? styles.sessionItemContainerFirst :
-                    isLast ? styles.sessionItemContainerLast : {}
-        ]}>
-        <Pressable
-            style={[
-                styles.sessionItem,
-                selected && styles.sessionItemSelected,
-                isSingle ? styles.sessionItemSingle :
-                    isFirst ? styles.sessionItemFirst :
-                        isLast ? styles.sessionItemLast : {}
-            ]}
-            onPress={handlePress}
-            {...menuProps}
-        >
-            <View style={styles.avatarContainer}>
-                <Avatar id={session.avatarId} size={48} monochrome={!status.isConnected} flavor={session.flavor} />
-                {session.hasDraft && (
-                    <View style={styles.draftIconContainer}>
-                        <Ionicons
-                            name="create-outline"
-                            size={12}
-                            style={styles.draftIconOverlay}
-                        />
-                    </View>
-                )}
-            </View>
-            <View style={styles.sessionContent}>
-                <View style={styles.sessionTitleRow}>
-                    <Text style={[
-                        styles.sessionTitle,
-                        status.isConnected ? styles.sessionTitleConnected : styles.sessionTitleDisconnected
-                    ]} numberOfLines={1}>
-                        {session.name}
-                    </Text>
-                </View>
-
-                {session.path ? (
-                    <View style={styles.sessionSubtitleRow}>
-                        <Text style={styles.sessionSubtitle} numberOfLines={1}>
-                            {session.path.split(/[/\\]/).filter(Boolean).pop()}
-                        </Text>
-                    </View>
-                ) : (
-                    <Text style={styles.sessionSubtitle} numberOfLines={1}>
-                        {session.subtitle}
-                    </Text>
-                )}
-
-                <View style={styles.statusRow}>
-                    <View style={styles.statusDotContainer}>
-                        <StatusDot color={status.dotColor} isPulsing={status.isPulsing} />
-                    </View>
-                    <Text style={[
-                        styles.statusText,
-                        { color: status.color }
-                    ]}>
-                        {statusText}
-                    </Text>
-                </View>
-            </View>
-        </Pressable>
-        {Platform.OS === 'web' && (
-            <SessionActionsPopover
-                anchor={actionsAnchor}
-                onClose={() => setActionsAnchor(null)}
-                sessionId={session.id}
-                visible={!!actionsAnchor}
-            />
-        )}
-        </View>
-    );
-});

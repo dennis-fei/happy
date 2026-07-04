@@ -71,6 +71,7 @@ import { isBun } from './runtime';
 export function spawnHappyCLI(args: string[], options: SpawnOptions = {}): ChildProcess {
   const projectRoot = projectPath();
   const entrypoint = join(projectRoot, 'dist', 'index.mjs');
+  const srcEntrypoint = join(projectRoot, 'src', 'index.ts');
 
   let directory: string | URL | undefined;
   if ('cwd' in options) {
@@ -78,35 +79,35 @@ export function spawnHappyCLI(args: string[], options: SpawnOptions = {}): Child
   } else {
     directory = process.cwd()
   }
-  // Note: We're actually executing 'node' with the calculated entrypoint path below,
-  // bypassing the 'happy' wrapper that would normally be found in the shell's PATH.
-  // However, we log it as 'happy' here because other engineers are typically looking
-  // for when "happy" was started and don't care about the underlying node process
-  // details and flags we use to achieve the same result.
   const fullCommand = `happy ${args.join(' ')}`;
   logger.debug(`[SPAWN HAPPY CLI] Spawning: ${fullCommand} in ${directory}`);
-  
-  // Use the same Node.js flags that the wrapper script uses
-  const nodeArgs = [
-    '--no-warnings',
-    '--no-deprecation',
-    entrypoint,
-    ...args
-  ];
 
-  // Sanity check of the entrypoint path exists
+  // If dist/index.mjs doesn't exist, fall back to running source via tsx.
+  // This allows the daemon to be spawned when running directly from source
+  // (e.g. `npx tsx src/index.ts`) without a build step.
   if (!existsSync(entrypoint)) {
-    const errorMessage = `Entrypoint ${entrypoint} does not exist`;
-    logger.debug(`[SPAWN HAPPY CLI] ${errorMessage}`);
-    throw new Error(errorMessage);
+    logger.debug(`[SPAWN HAPPY CLI] dist/index.mjs not found, falling back to: npx tsx ${srcEntrypoint}`);
+    return crossSpawn('npx', ['tsx', srcEntrypoint, ...args], {
+      windowsHide: true,
+      ...options,
+      env: {
+        ...process.env,
+        ...(options.env as NodeJS.ProcessEnv | undefined),
+      },
+    });
   }
-  
+
   const runtime = isBun() ? 'bun' : 'node';
   // Use cross-spawn so `node` resolves to `node.exe` on Windows.
   // Since Node's CVE-2024-27980 hardening, child_process.spawn('node', ...)
   // on Windows no longer falls back to appending `.exe`, producing ENOENT
   // even when node is on PATH (issue #1082).
-  return crossSpawn(runtime, nodeArgs, {
+  return crossSpawn(runtime, [
+    '--no-warnings',
+    '--no-deprecation',
+    entrypoint,
+    ...args
+  ], {
     windowsHide: true,
     ...options,
   });
