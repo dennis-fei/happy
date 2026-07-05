@@ -506,6 +506,7 @@ export const ru: TranslationStructure = {
         showArchived: 'Показать архив',
         hideArchived: 'Скрыть архив',
         newSession: 'Новая сессия',
+        emptyHint: "Выберите сессию слева или создайте новую",
     },
 
     zen: {

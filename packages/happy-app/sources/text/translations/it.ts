@@ -488,6 +488,7 @@ export const it: TranslationStructure = {
         showArchived: 'Mostra archiviate',
         hideArchived: 'Nascondi archiviate',
         newSession: 'Nuova sessione',
+        emptyHint: "Scegli una sessione dalla barra laterale o creane una nuova",
     },
 
     zen: {

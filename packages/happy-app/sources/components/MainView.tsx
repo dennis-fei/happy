@@ -289,11 +289,17 @@ export const MainView = React.memo(({ variant }: MainViewProps) => {
     }
 
     // Phone variant
-    // Tablet in phone mode - special case (when showing index view on tablets, show empty view)
+    // Tablet in phone mode - special case (when showing index view on tablets, show welcome placeholder)
     if (isTablet) {
-        // Just show an empty view on tablets for the index view
-        // The sessions list is shown in the sidebar, so the main area should be blank
-        return <View style={styles.emptyStateContentContainer} />;
+        // The sessions list is shown in the sidebar; main area shows a gentle hint
+        return (
+            <View style={[styles.emptyStateContentContainer, { alignItems: 'center', justifyContent: 'center' }]}>
+                <Ionicons name="chatbubbles-outline" size={44} color={theme.colors.textSecondary} style={{ opacity: 0.35, marginBottom: 16 }} />
+                <Text style={{ fontSize: 15, color: theme.colors.textSecondary, opacity: 0.8, ...Typography.default() }}>
+                    {t('sidebar.emptyHint')}
+                </Text>
+            </View>
+        );
     }
 
     // Regular phone mode with tabs

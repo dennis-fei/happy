@@ -506,6 +506,7 @@ export const pl: TranslationStructure = {
         showArchived: 'Pokaż zarchiwizowane',
         hideArchived: 'Ukryj zarchiwizowane',
         newSession: 'Nowa sesja',
+        emptyHint: "Wybierz sesję z listy lub utwórz nową",
     },
 
     zen: {

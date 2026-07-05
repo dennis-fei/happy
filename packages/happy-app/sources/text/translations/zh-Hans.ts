@@ -492,6 +492,7 @@ export const zhHans: TranslationStructure = {
         showArchived: '显示已归档',
         hideArchived: '隐藏已归档',
         newSession: '新建会话',
+        emptyHint: "从左侧选择一个会话，或新建一个",
     },
 
     zen: {

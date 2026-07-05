@@ -505,6 +505,7 @@ export const en = {
         showArchived: 'Show archived',
         hideArchived: 'Hide archived',
         newSession: 'New session',
+        emptyHint: "Pick a session from the sidebar, or start a new one",
     },
 
     zen: {

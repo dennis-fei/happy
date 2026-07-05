@@ -81,6 +81,12 @@ export function getSessionName(session: Session): string {
     if (session.metadata?.summary) {
         return session.metadata.summary.text;
     }
+    // 没有 AI 生成的摘要时，用项目文件夹名代替千篇一律的 "New chat"
+    const path = session.metadata?.path;
+    if (path) {
+        const base = path.split('/').filter(Boolean).pop();
+        if (base) return base;
+    }
     return t('session.newChat');
 }
 

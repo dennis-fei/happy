@@ -492,6 +492,7 @@ export const ja: TranslationStructure = {
         showArchived: 'アーカイブを表示',
         hideArchived: 'アーカイブを非表示',
         newSession: '新しいセッション',
+        emptyHint: "左のリストからセッションを選ぶか、新規作成してください",
     },
 
     zen: {

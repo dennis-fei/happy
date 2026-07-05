@@ -110,12 +110,12 @@ const stylesheet = StyleSheet.create((theme) => ({
         flex: 1,
         flexDirection: 'row' as const,
         alignItems: 'center' as const,
-        paddingHorizontal: 10,
-        paddingVertical: 6,
-        gap: 10,
+        paddingHorizontal: 12,
+        paddingVertical: 9,
+        gap: 11,
     },
     rowOffline: {
-        opacity: 0.5,
+        opacity: 0.65,
     },
     rowNeedsYouBg: {
         backgroundColor: 'rgba(245, 158, 11, 0.05)',
@@ -123,21 +123,24 @@ const stylesheet = StyleSheet.create((theme) => ({
     rowPressed: {
         backgroundColor: theme.colors.surface,
     },
+    rowHovered: {
+        backgroundColor: 'rgba(0, 0, 0, 0.045)',
+    },
     rowSelected: {
         backgroundColor: theme.colors.surface,
     },
 
-    // Agent avatar — 32×32 circle
+    // Agent avatar — rounded square (Linear style)
     avatar: {
-        width: 32,
-        height: 32,
-        borderRadius: 16,
+        width: 34,
+        height: 34,
+        borderRadius: 10,
         alignItems: 'center' as const,
         justifyContent: 'center' as const,
         flexShrink: 0,
     },
     avatarText: {
-        fontSize: 12,
+        fontSize: 13,
         ...Typography.default('semiBold'),
     },
 
@@ -179,9 +182,9 @@ const stylesheet = StyleSheet.create((theme) => ({
         gap: 5,
     },
     statusDot: {
-        width: 5,
-        height: 5,
-        borderRadius: 2.5,
+        width: 6,
+        height: 6,
+        borderRadius: 3,
         flexShrink: 0,
     },
     metaText: {
@@ -284,10 +287,11 @@ const SessionItem = React.memo(({ session, selected }: {
             <Pressable
                 onPress={handlePress}
                 {...menuProps}
-                style={({ pressed }) => [
+                style={({ pressed, hovered }: any) => [
                     styles.row,
                     isOffline && styles.rowOffline,
                     isNeedsYou && styles.rowNeedsYouBg,
+                    hovered && !selected && styles.rowHovered,
                     pressed && styles.rowPressed,
                     selected && styles.rowSelected,
                 ]}

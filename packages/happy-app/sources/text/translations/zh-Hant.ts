@@ -490,6 +490,7 @@ export const zhHant: TranslationStructure = {
         showArchived: '顯示已封存',
         hideArchived: '隱藏已封存',
         newSession: '新建對話',
+        emptyHint: "從左側選擇一個會話，或新建一個",
     },
 
     zen: {

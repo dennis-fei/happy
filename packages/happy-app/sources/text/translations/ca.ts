@@ -490,6 +490,7 @@ export const ca: TranslationStructure = {
         showArchived: 'Mostra arxivades',
         hideArchived: 'Amaga arxivades',
         newSession: 'Nova sessió',
+        emptyHint: "Tria una sessió de la barra lateral o crea'n una de nova",
     },
 
     zen: {
