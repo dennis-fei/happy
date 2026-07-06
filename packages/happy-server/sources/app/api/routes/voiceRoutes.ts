@@ -166,7 +166,7 @@ export function voiceRoutes(app: Fastify) {
         // Get conversation token (JWT for WebRTC) with user identity
         try {
             const tokenRes = await fetch(
-                `${ELEVEN_LABS_API}/conversation/token?agent_id=${agentId}&participant_name=${elevenUserId}`,
+                `${ELEVEN_LABS_API}/conversation/token?agent_id=${encodeURIComponent(agentId)}&participant_name=${encodeURIComponent(elevenUserId)}`,
                 { headers: { 'xi-api-key': elevenLabsApiKey } }
             );
 
