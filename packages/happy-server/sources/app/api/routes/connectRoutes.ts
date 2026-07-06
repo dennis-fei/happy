@@ -98,7 +98,7 @@ export function connectRoutes(app: Fastify) {
         // Verify the state token to get userId
         const tokenData = await auth.verifyGithubToken(state);
         if (!tokenData) {
-            log({ module: 'github-oauth' }, `Invalid state token: ${state}`);
+            log({ module: 'github-oauth' }, `Invalid state token`);
             return reply.redirect('https://app.happy.engineering?error=invalid_state');
         }
 

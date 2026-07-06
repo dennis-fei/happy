@@ -733,13 +733,35 @@ function commandRun(service: string, serviceArgs: string[] = []) {
 // env.sh builder
 // ============================================================================
 
+/**
+ * The server derives ALL auth tokens from HANDY_MASTER_SECRET. A shared,
+ * source-committed constant means anyone can mint a valid token for any account
+ * against this server — catastrophic once the server is exposed to the public
+ * internet (see commandTailscale). So we generate a random secret per env and
+ * persist it inside the env dir (which lives under environments/data/, gitignored).
+ */
+function readOrCreateMasterSecret(envDir: string): string {
+    if (process.env.HANDY_MASTER_SECRET) {
+        return process.env.HANDY_MASTER_SECRET;
+    }
+    const secretPath = path.join(envDir, "master.secret");
+    if (fs.existsSync(secretPath)) {
+        const existing = fs.readFileSync(secretPath, "utf-8").trim();
+        if (existing) return existing;
+    }
+    const secret = crypto.randomBytes(32).toString("hex");
+    fs.mkdirSync(envDir, { recursive: true });
+    fs.writeFileSync(secretPath, secret + "\n", { mode: 0o600 });
+    return secret;
+}
+
 function buildEnvVars(envDir: string, serverPort: number, expoPort: number): Record<string, string> {
     const devAuth = readDevAuth(envDir);
     const projectDir = path.join(envDir, "project");
 
     return {
         // Server
-        HANDY_MASTER_SECRET: "happy-dev-secret",
+        HANDY_MASTER_SECRET: readOrCreateMasterSecret(envDir),
         PORT: String(serverPort),
         NODE_ENV: "development",
         DATA_DIR: path.join(envDir, "server"),
@@ -933,7 +955,7 @@ function commandDown(targetName?: string) {
 // Tailscale
 // ============================================================================
 
-function commandTailscale() {
+function commandTailscale(args: string[] = []) {
     const currentConfig = readCurrentConfig();
     if (!currentConfig?.current) {
         console.error("No current environment. Run `pnpm env:new` first.");
@@ -941,6 +963,27 @@ function commandTailscale() {
     }
 
     const config = readEnvironmentConfig(currentConfig.current);
+    const envDir = getEnvironmentDir(currentConfig.current);
+
+    // SECURITY GATE: funnel exposes this env's server to the PUBLIC internet.
+    // The server derives all auth tokens from HANDY_MASTER_SECRET, so a weak or
+    // shared secret means anyone can forge tokens for any account. Refuse unless
+    // the env uses a strong, non-default secret (or the user explicitly opts in).
+    const force = args.includes("--force");
+    const secret = readOrCreateMasterSecret(envDir);
+    const WEAK_SECRETS = new Set(["happy-dev-secret", "your-super-secret-key-for-local-development", "local-dev-secret-not-for-production"]);
+    const secretIsWeak = WEAK_SECRETS.has(secret) || secret.length < 32;
+    if (secretIsWeak && !force) {
+        console.error("Refusing to expose this environment to the public internet.");
+        console.error("");
+        console.error(`  Its HANDY_MASTER_SECRET is weak/shared, so anyone could forge auth tokens.`);
+        console.error(`  New environments now get a random secret automatically — recreate this one`);
+        console.error(`  with 'pnpm env:up:authenticated', or set a strong HANDY_MASTER_SECRET.`);
+        console.error("");
+        console.error(`  For LAN-only access without public exposure, use 'tailscale serve' instead of funnel.`);
+        console.error(`  To override this check anyway (NOT recommended): pnpm env:tailscale --force`);
+        process.exit(1);
+    }
 
     // Get tailscale hostname
     let hostname: string;
@@ -1031,7 +1074,7 @@ async function main(): Promise<void> {
             commandDown(args[0]);
             break;
         case "tailscale":
-            commandTailscale();
+            commandTailscale(args);
             break;
         default:
             console.log(`Happy Environment Manager
