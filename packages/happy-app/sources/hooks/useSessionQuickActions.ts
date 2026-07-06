@@ -2,7 +2,7 @@ import * as React from 'react';
 import { useHappyAction } from '@/hooks/useHappyAction';
 import { useNavigateToSession } from '@/hooks/useNavigateToSession';
 import { Modal } from '@/modal';
-import { machineResumeSession, sessionArchive, sessionKill, forkAndSpawn, type ForkSource } from '@/sync/ops';
+import { machineResumeSession, sessionArchive, sessionDelete, sessionKill, forkAndSpawn, type ForkSource } from '@/sync/ops';
 import { maybeCleanupWorktree } from '@/hooks/useWorktreeCleanup';
 import { storage, useLocalSetting, useMachine, useSetting } from '@/sync/storage';
 import { Machine, Session } from '@/sync/storageTypes';
@@ -214,6 +214,32 @@ export function useSessionQuickActions(
         performArchive();
     }, [performArchive]);
 
+    // Permanently delete the session (server + local). Offline sessions can't
+    // be killed — best-effort kill only when still active.
+    const [deletingSession, performDelete] = useHappyAction(async () => {
+        await maybeCleanupWorktree(session.id, session.metadata?.path, session.metadata?.machineId);
+        if (session.active) {
+            await sessionKill(session.id).catch(() => {});
+        }
+        const result = await sessionDelete(session.id);
+        if (!result.success) {
+            throw new HappyError(result.message || t('sessionInfo.failedToDeleteSession'), false);
+        }
+        storage.getState().deleteSession(session.id);
+        onAfterDelete?.();
+    });
+
+    const deleteSessionAction = React.useCallback(() => {
+        Modal.alert(
+            t('sessionInfo.deleteSession'),
+            t('sessionInfo.deleteSessionWarning'),
+            [
+                { text: t('common.cancel'), style: 'cancel' },
+                { text: t('sessionInfo.deleteSession'), style: 'destructive', onPress: performDelete },
+            ]
+        );
+    }, [performDelete]);
+
     const resumeSession = React.useCallback(() => {
         performResume();
     }, [performResume]);
@@ -269,10 +295,12 @@ export function useSessionQuickActions(
         }
 
         items.push({ id: 'archive', icon: 'archive-outline', label: 'Archive', onPress: archiveSession, destructive: true });
+        items.push({ id: 'delete', icon: 'trash-outline', label: t('sessionInfo.deleteSession'), onPress: deleteSessionAction, destructive: true });
 
         return items;
     }, [
         archiveSession,
+        deleteSessionAction,
         canCopySessionMetadata,
         canFork,
         copySessionMetadata,
